@@ -1,0 +1,109 @@
+
+
+services:
+
+  # -----------------------------
+  # Traefik Reverse Proxy
+  # -----------------------------
+  traefik:
+    image: traefik:v2.11
+    container_name: traefik_on_guard
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+    ports:
+      - "9090:9090"    # Traefik dashboard
+      - "90:80"        # HTTP host port 90 -> container 80 (local dev)
+      - "8443:443"     # HTTPS host port 8443 -> container 443 (local dev)
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./letsencrypt:/letsencrypt"
+      - "./traefik.yml:/traefik.yml:ro"
+    restart: always
+
+  # -----------------------------
+  # n8n Workflow Automation
+  # -----------------------------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PORT=${N8N_PORT}
+      - N8N_PROTOCOL=${N8N_PROTOCOL}
+      - NODE_ENV=${NODE_ENV}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.n8n.rule=Host(`${TRAEFIK_DOMAIN}`)"
+      - "traefik.http.routers.n8n.entrypoints=websecure"
+      - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
+    volumes:
+      - ./data/n8n:/home/node/.n8n
+    ports:
+      - "5678:5678"   # Direct access for local testing
+    restart: always
+
+  # -----------------------------
+  # Node-RED
+  # -----------------------------
+  nodered:
+    image: nodered/node-red:latest
+    container_name: nodered
+    environment:
+      - TZ=UTC
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nodered.rule=Host(`nodered.${TRAEFIK_DOMAIN}`)"
+      - "traefik.http.routers.nodered.entrypoints=websecure"
+      - "traefik.http.routers.nodered.tls.certresolver=letsencrypt"
+    volumes:
+      - ./data/nodered:/data
+    ports:
+      - "1880:1880"   # Direct access for local testing
+    restart: always
+
+  # -----------------------------
+  # Apache + PHP (future web app)
+  # -----------------------------
+  apache-php:
+    image: php:8.2-apache
+    container_name: apache-php
+    working_dir: /var/www/html
+    volumes:
+      - ./src/public:/var/www/html
+      - ./src/Includes:/var/www/includes
+      - ./src/Controllers:/var/www/controllers
+      - ./src/Models:/var/www/models
+      - ./src/router.php:/var/www/router.php
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.phpapp.rule=Host(`app.${TRAEFIK_DOMAIN}`)"
+      - "traefik.http.routers.phpapp.entrypoints=websecure"
+      - "traefik.http.routers.phpapp.tls.certresolver=letsencrypt"
+    ports:
+      - "8080:80"   # Local direct access
+    restart: always
+
+  # -----------------------------
+  # PostgreSQL Database
+  # -----------------------------
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-appdb}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"  # Local direct access
+    restart: always

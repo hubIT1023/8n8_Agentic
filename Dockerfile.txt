@@ -1,0 +1,41 @@
+# Use official PHP 8.2 Apache image
+FROM php:8.2-apache
+
+# Set working directory
+WORKDIR /var/www/html
+
+# Install common PHP extensions (adjust as needed)
+RUN apt-get update && apt-get install -y \
+    libpng-dev \
+    libjpeg-dev \
+    libfreetype6-dev \
+    libonig-dev \
+    libzip-dev \
+    zip \
+    unzip \
+    git \
+    curl \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install gd mysqli pdo pdo_mysql zip mbstring \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Enable Apache mod_rewrite
+RUN a2enmod rewrite
+
+# Copy source code into container
+# (We will mount ./src/public in docker-compose, so main files are live)
+COPY ./src/public /var/www/html
+COPY ./src/Includes /var/www/includes
+COPY ./src/Controllers /var/www/controllers
+COPY ./src/Models /var/www/models
+COPY ./src/router.php /var/www/router.php
+
+# Set proper permissions
+RUN chown -R www-data:www-data /var/www/html /var/www/includes /var/www/controllers /var/www/models \
+    && chmod -R 755 /var/www/html /var/www/includes /var/www/controllers /var/www/models
+
+# Expose Apache port
+EXPOSE 80
+
+# Start Apache in foreground
+CMD ["apache2-foreground"]
